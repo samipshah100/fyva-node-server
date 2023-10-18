@@ -7,32 +7,33 @@ import { OpenAIEmbeddings } from 'langchain/embeddings/openai'
 import { Document } from 'langchain/document'
 import axios from 'axios'
 import { createClient } from '@supabase/supabase-js'
-// import configuration from '~/configuration'
-// const fs = require('fs')
+import constants from '../../constants.js'
 import fs from 'fs'
 import formidable from 'formidable'
 import { promises as fsPromises } from 'fs'
 import pdfParse from 'pdf-parse/lib/pdf-parse.js'
 // const admin = require('firebase-admin')
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter'
+
 routes.post('/', async (req, res) => {
   try {
-    // fixme config
-    // const { chunkSize, chunkOverlap } = configuration.engine
-    const chunkSize = 1000
-    const chunkOverlap = 500
-    console.log(
-      'inside ingestSinglePDF to supabase. chunkoverlap and chunksize',
-      chunkOverlap,
-      chunkSize
-    )
-    // fixme config
-    const SUPABASE_PRIVATE_KEY = ''
-    const SUPABASE_URL = ''
-    // const { SUPABASE_PRIVATE_KEY, SUPABASE_URL } = configuration.engine
+    const token = req.headers['authorization']
+
+    if (token !== process.env.BEARER_TOKEN)
+      return res.status(403).send({
+        success: false,
+        message: 'Authentication Failed. Stop right there ✋',
+      })
+    const { SUPABASE_PRIVATE_KEY, SUPABASE_URL, chunkSize, chunkOverlap } =
+      constants
+
+    // console.log(
+    //   'inside ingestSinglePDF to supabase. chunkoverlap and chunksize',
+    //   chunkOverlap,
+    //   chunkSize
+    // )
 
     let organizationId, workspaceId, fileSize, fileName
-
     // const form = new formidable.IncomingForm()
 
     // form.parse(req, async (err, fields, files) => {
@@ -88,7 +89,6 @@ routes.post('/', async (req, res) => {
 
     ///
 
-    let pdfData
     const form = new formidable.IncomingForm({})
 
     const data = await new Promise((resolve, reject) => {
@@ -104,16 +104,19 @@ routes.post('/', async (req, res) => {
 
         organizationId = fields.organizationId
         workspaceId = fields.workspaceId
+        console.log(
+          '🚀 ~ file: ingestPdfToSupabaseRouter.js:101 ~ form.parse ~ organizationId:',
+          organizationId,
+          workspaceId
+        )
 
         for (const file of filesArray) {
           fileSize = file.size
           fileName = file.originalFilename
-
           const buffer = await fsPromises.readFile(file.filepath)
           await fsPromises.unlink(file.filepath)
           buffers.push(buffer)
         }
-
         resolve(buffers)
       })
     })
@@ -124,7 +127,7 @@ routes.post('/', async (req, res) => {
     const texts = await Promise.all(data.map((buffer) => pdfParse(buffer)))
     const rawDocs = texts
       .map((textData) => {
-        console.log('~🌟 here is the section', textData.text)
+        // console.log('🌟 here is the one by one pdf \n : ', textData.text)
         return textData.text
       })
       .join(' ')
@@ -140,12 +143,12 @@ routes.post('/', async (req, res) => {
 
     // const rawDocs = await loader.load();
 
-    console.log('raw docs', rawDocs)
+    // console.log('raw docs', rawDocs)
 
     // remove newlines
     const sanitizedRawDocs = rawDocs.trim().replaceAll('\n', ' ')
 
-    console.log('rawdocs after removing new line', sanitizedRawDocs)
+    // console.log('rawdocs after removing new line', sanitizedRawDocs)
 
     ///
     const textSplitter = new RecursiveCharacterTextSplitter({
@@ -159,6 +162,7 @@ routes.post('/', async (req, res) => {
         metadata: { workspaceId },
       }),
     ])
+
     console.log('split docs', docs)
 
     console.log('ingesting to  vector store ...')
@@ -177,7 +181,7 @@ routes.post('/', async (req, res) => {
     console.log('succesfully ingested ' + workspaceId + ' to supabase')
 
     // update firebase
-    const { siteUrl } = configuration.site
+    const { siteUrl } = constants
 
     // const updateFileListRes = await axios.post(
     //   `${siteUrl}/api/firebase/updateUploadedFilesListForWorkspace`,
